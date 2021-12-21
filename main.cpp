@@ -3,6 +3,7 @@
 #include <alloca.h>
 #include "jit.h"
 void setupPredefinedFunctions(ClangJitCompiler& compiler);
+void setupGMPFunctions();
 
 extern "C" int error_handler(int level, const char *filename, int line, int column, const char *message)
 {
@@ -37,9 +38,11 @@ int main(int ac, char *const *av)
             default:
               types[i] = 0;
           }
+          //printf("type - name %s:%s\n", av[2*i+3], av[2*i+2]);
         }
         compiler.setOptimizeLevel(3);
         setupPredefinedFunctions(compiler);
+        setupGMPFunctions();
         compiler.compile(sources, types, nSource, error_handler);
         compiler.finalize();
 
