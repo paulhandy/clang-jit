@@ -35,7 +35,8 @@ extern int clang_JitIrSave(void *ctx, const char *filename);
 extern const char *clang_JitIrLoad(void *ctx, const char *filename);
 extern const char *clang_JitIrMergeFile(void *ctx, const char *filename);
 extern const char *clang_JitIrMerge(void *ctx, void *another);
-extern void *clang_JitIrCompile(void *ctx, const char *source, int type, error_handler_t handler);
+//extern void *clang_JitIrCompile(void *ctx, const char *source, int type, error_handler_t handler);
+extern void *clang_JitIrCompile(void *ctx, const char *const *source, int *type, int nSource, error_handler_t handler);
 extern void *clang_JitIrOptimize(void *ctx);
 extern void *clang_JitGenerateTargetCode(void *ctx);
 extern void *clang_JitGetFunctionAddress(void *ctx, const char *name);
@@ -168,9 +169,9 @@ public:
         }
     }
 
-    ClangJitCompiler& generateIR(const char *source, int type, error_handler_t handler)
+    ClangJitCompiler& generateIR(const char **source, int *type, int n, error_handler_t handler)
     {
-        if (!clang_JitIrCompile(ctx_, source, type, handler)) {
+        if (!clang_JitIrCompile(ctx_, source, type, n, handler)) {
             throw std::runtime_error("Compile error.");
         }
         return *this;
@@ -192,9 +193,9 @@ public:
         return *this;
     }
 
-    ClangJitCompiler& compile(const char *source, int type, error_handler_t handler)
+    ClangJitCompiler& compile(const char **source, int *type, int n, error_handler_t handler)
     {
-        if (!clang_JitIrCompile(ctx_, source, type, handler)) {
+        if (!clang_JitIrCompile(ctx_, source, type, n, handler)) {
             throw std::runtime_error("Compile error.");
         }
         if (!clang_JitIrOptimize(ctx_)) {
@@ -211,11 +212,12 @@ public:
     template<typename R>
     R getFunctionAddress(const char* name)
     {
-        void *addr = clang_JitGetFunctionAddress(ctx_, name);
+        R addr = static_cast<R>((R) clang_JitGetFunctionAddress(ctx_, name));
+        //void *addr = ;
         if (!addr) {
             throw std::runtime_error("Function not found.");
         }
-        return static_cast<R>(addr);
+        return addr;
     }
 
 private:

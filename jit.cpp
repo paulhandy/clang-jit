@@ -50,7 +50,7 @@
 #include <clang/Basic/FileManager.h>
 #include <clang/Basic/FileSystemOptions.h>
 #include <clang/Basic/LangOptions.h>
-#include <clang/Basic/MemoryBufferCache.h>
+//#include <clang/Basic/MemoryBufferCache.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/TargetInfo.h>
 #include <clang/CodeGen/CodeGenAction.h>
@@ -63,6 +63,7 @@
 #include <clang/Parse/ParseAST.h>
 #include <clang/Sema/Sema.h>
 
+//#include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/InitializePasses.h>
@@ -74,6 +75,7 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/Support/Host.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -81,6 +83,7 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/DynamicLibrary.h>
+#include <llvm/Target/TargetMachine.h>
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Linker/Linker.h>
 
@@ -503,14 +506,14 @@ const char *clang_JitOutputObjectFile(void *ctx, const char *name)
     jitContext->module->setDataLayout(theTargetMachine->createDataLayout());
 
     std::error_code ec;
-    llvm::raw_fd_ostream dest(name, ec, llvm::sys::fs::F_None);
+    llvm::raw_fd_ostream dest(name, ec, llvm::sys::fs::OF_None);
     if (ec) {
         snprintf(errorMessage, 255, "Cannot open file: %s", name);
         return errorMessage;
     }
 
     llvm::legacy::PassManager pass;
-    auto fileType = llvm::TargetMachine::CGFT_ObjectFile;
+    auto fileType = llvm::CGFT_ObjectFile;
     if (theTargetMachine->addPassesToEmitFile(pass, dest, nullptr, fileType)) {
         snprintf(errorMessage, 255, "Cannot emit a file of this type.");
         return errorMessage;
@@ -522,7 +525,7 @@ const char *clang_JitOutputObjectFile(void *ctx, const char *name)
     return nullptr;
 }
 
-void *clang_JitIrCompile(void *ctx, const char *source, int type, error_handler_t handler)
+void *clang_JitIrCompile(void *ctx, const char *const *source, int *type, int nSource, error_handler_t handler)
 {
     ClangJitContext *jitContext = (ClangJitContext*)ctx;
     if (!jitContext || jitContext->llvm) return nullptr;
@@ -544,7 +547,8 @@ void *clang_JitIrCompile(void *ctx, const char *source, int type, error_handler_
     if (jitContext->options[ClangJitOption_OptimizeLevel] > 0) {
         ss << " -O" << jitContext->options[ClangJitOption_OptimizeLevel];
     }
-    if (type == ClangJitSourceType_CXX_String || type == ClangJitSourceType_CXX_File) {
+    for(int j = nSource; j-->0;) 
+    if (type[j] == ClangJitSourceType_CXX_String || type[j] == ClangJitSourceType_CXX_File) {
         ss << " -fcxx-exceptions";
     }
     ss << " -fms-extensions";
@@ -562,7 +566,8 @@ void *clang_JitIrCompile(void *ctx, const char *source, int type, error_handler_
 
     // compiler instance.
     clang::CompilerInvocation::CreateFromArgs(compilerInvocation,
-        itemcstrs.data(), itemcstrs.data() + itemcstrs.size(), *diagnosticsEngine.get());
+        itemcstrs, *diagnosticsEngine.get());
+        //itemcstrs.data(), itemcstrs.data() + itemcstrs.size(), *diagnosticsEngine.get());
 
     // Options.
     // auto& preprocessorOptions = compilerInvocation.getPreprocessorOpts();
@@ -584,37 +589,39 @@ void *clang_JitIrCompile(void *ctx, const char *source, int type, error_handler_
 
     // Setting up to compile a file.
     std::unique_ptr<llvm::MemoryBuffer> buffer;
-    switch (type) {
-    case ClangJitSourceType_C_String:
-        buffer = llvm::MemoryBuffer::getMemBufferCopy(source, "SourceTextStringBuffer");
-        frontEndOptions.Inputs.push_back(clang::FrontendInputFile(buffer.get(), clang::InputKind::C));
-        break;
-    case ClangJitSourceType_CXX_String:
-        // codeGenOptions.UnwindTables = 1;
-        // codeGenOptions.Addrsig = 1;
-        // languageOptions->Exceptions = 1;
-        // languageOptions->CXXExceptions = 1;
-        // languageOptions->RTTI = 1;
-        languageOptions->Bool = 1;
-        languageOptions->CPlusPlus = 1;
-        buffer = llvm::MemoryBuffer::getMemBufferCopy(source, "SourceTextStringBuffer");
-        frontEndOptions.Inputs.push_back(clang::FrontendInputFile(buffer.get(), clang::InputKind::CXX));
-        break;
-    case ClangJitSourceType_C_File:
-        frontEndOptions.Inputs.push_back(clang::FrontendInputFile(source, clang::InputKind::C));
-        break;
-    case ClangJitSourceType_CXX_File:
-        // codeGenOptions.UnwindTables = 1;
-        // codeGenOptions.Addrsig = 1;
-        // languageOptions->Exceptions = 1;
-        // languageOptions->CXXExceptions = 1;
-        // languageOptions->RTTI = 1;
-        languageOptions->Bool = 1;
-        languageOptions->CPlusPlus = 1;
-        frontEndOptions.Inputs.push_back(clang::FrontendInputFile(source, clang::InputKind::CXX));
-        break;
-    default:
-        return nullptr;
+    for(int j = nSource; j-- > 0;) {
+      switch (type[j]) {
+        case ClangJitSourceType_C_String:
+          buffer = llvm::MemoryBuffer::getMemBufferCopy(source[j], "SourceTextStringBuffer");
+          frontEndOptions.Inputs.push_back(clang::FrontendInputFile( buffer->getMemBufferRef(), clang::InputKind(clang::Language::C, clang::InputKind::Format::Source)));
+          break;
+        case ClangJitSourceType_CXX_String:
+          // codeGenOptions.UnwindTables = 1;
+          // codeGenOptions.Addrsig = 1;
+          // languageOptions->Exceptions = 1;
+          // languageOptions->CXXExceptions = 1;
+          // languageOptions->RTTI = 1;
+          languageOptions->Bool = 1;
+          languageOptions->CPlusPlus = 1;
+          buffer = llvm::MemoryBuffer::getMemBufferCopy(source[j], "SourceTextStringBuffer");
+          frontEndOptions.Inputs.push_back(clang::FrontendInputFile(buffer->getMemBufferRef(), clang::InputKind(clang::Language::CXX, clang::InputKind::Format::Source)));
+          break;
+        case ClangJitSourceType_C_File:
+          frontEndOptions.Inputs.push_back(clang::FrontendInputFile(source[j], clang::InputKind(clang::Language::C, clang::InputKind::Format::Source)));
+          break;
+        case ClangJitSourceType_CXX_File:
+          // codeGenOptions.UnwindTables = 1;
+          // codeGenOptions.Addrsig = 1;
+          // languageOptions->Exceptions = 1;
+          // languageOptions->CXXExceptions = 1;
+          // languageOptions->RTTI = 1;
+          languageOptions->Bool = 1;
+          languageOptions->CPlusPlus = 1;
+          frontEndOptions.Inputs.push_back(clang::FrontendInputFile(source[j], clang::InputKind(clang::Language::CXX, clang::InputKind::Format::Source)));
+          break;
+        default:
+          return nullptr;
+      }
     }
 
     compilerInstance.createDiagnostics(diagHandler.get(), false);
@@ -648,19 +655,20 @@ void *clang_JitIrOptimize(void *ctx)
     auto& compilerInvocation = compilerInstance.getInvocation();
     auto& codeGenOptions = compilerInvocation.getCodeGenOpts();
 
+    //codeGenOptions.DebugPassManager;
     // optimizations.
-    llvm::PassBuilder passBuilder;
-    llvm::LoopAnalysisManager loopAnalysisManager(codeGenOptions.DebugPassManager);
-    llvm::FunctionAnalysisManager functionAnalysisManager(codeGenOptions.DebugPassManager);
-    llvm::CGSCCAnalysisManager cGSCCAnalysisManager(codeGenOptions.DebugPassManager);
-    llvm::ModuleAnalysisManager moduleAnalysisManager(codeGenOptions.DebugPassManager);
-    passBuilder.registerModuleAnalyses(moduleAnalysisManager);
-    passBuilder.registerCGSCCAnalyses(cGSCCAnalysisManager);
-    passBuilder.registerFunctionAnalyses(functionAnalysisManager);
-    passBuilder.registerLoopAnalyses(loopAnalysisManager);
-    passBuilder.crossRegisterProxies(loopAnalysisManager, functionAnalysisManager, cGSCCAnalysisManager, moduleAnalysisManager);
-    llvm::ModulePassManager modulePassManager = passBuilder.buildPerModuleDefaultPipeline(llvm::PassBuilder::OptimizationLevel::O3);
-    modulePassManager.run(*jitContext->module, moduleAnalysisManager);
+    llvm::PassBuilder PB;
+    llvm::LoopAnalysisManager LAM;
+    llvm::FunctionAnalysisManager FAM;
+    llvm::CGSCCAnalysisManager CGAM;
+    llvm::ModuleAnalysisManager MAM;
+    PB.registerModuleAnalyses(MAM);
+    PB.registerCGSCCAnalyses(CGAM);
+    PB.registerFunctionAnalyses(FAM);
+    PB.registerLoopAnalyses(LAM);
+    PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+    llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(llvm::PassBuilder::OptimizationLevel::O3);
+    MPM.run(*jitContext->module, MAM);
 
     return jitContext;
 }
